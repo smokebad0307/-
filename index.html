@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>營養追蹤</title>
+<style>
+  /* --- CSS 樣式 --- */
+  :root {
+    --primary: #4f46e5; --primary-light: #c7d2fe; --success: #10b981;
+    --bg: #f3f4f6; --card-bg: #ffffff; --text: #1f2937; --text-light: #6b7280;
+    --danger: #ef4444;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+  .container { max-width: 480px; margin: 0 auto; }
+  .card { background: var(--card-bg); border-radius: 16px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  
+  /* 摘要卡片 */
+  .summary-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; }
+  .big-num { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+  .rem-num { font-size: 1.5rem; font-weight: 700; color: var(--success); }
+  .progress-bg { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 15px 0; }
+  .progress-bar { height: 100%; background: var(--success); width: 0%; transition: width 0.3s; }
+  .macros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .macro-item { background: var(--bg); padding: 10px; border-radius: 12px; text-align: center; }
+  .macro-val { font-weight: 600; display: block; margin-top: 4px; }
+
+  /* 分頁與輸入 */
+  .tabs { display: flex; background: var(--bg); padding: 4px; border-radius: 12px; margin-bottom: 20px; }
+  .tab-btn { flex: 1; padding: 10px; border: none; background: none; cursor: pointer; border-radius: 8px; font-weight: 600; color: var(--text-light); }
+  .tab-btn.active { background: var(--card-bg); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .input-group { margin-bottom: 12px; }
+  .input-field { width: 100%; padding: 12px; border: 1px solid #e5e7eb; border-radius: 12px; box-sizing: border-box; font-size: 1rem; background: var(--bg); }
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-ai { background: #8b5cf6; color: white; }
+  .btn:active { opacity: 0.9; }
+  .row { display: flex; gap: 12px; }
+
+  /* 今日紀錄列表 */
+  .list-header { font-weight: 600; color: var(--text-light); margin-bottom: 12px; }
+  .food-item { background: var(--card-bg); padding: 15px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .food-info h4 { margin: 0 0 4px 0; font-size: 1.1rem; }
+  .food-detail { font-size: 0.85rem; color: var(--text-light); }
+  .calories-tag { font-weight: 700; font-size: 1.2rem; margin-right: 15px; }
+  .actions { display: flex; gap: 8px; }
+  .icon-btn { padding: 6px; border: none; background: var(--bg); border-radius: 8px; cursor: pointer; color: var(--text-light); }
+  .icon-btn.edit:hover { color: var(--primary); background: var(--primary-light); }
+  .icon-btn.delete:hover { color: var(--danger); background: #fecaca; }
+
+  /* 修改模式 */
+  .edit-form { background: var(--bg); padding: 15px; border-radius: 16px; }
+  .edit-actions { display: flex; gap: 10px; margin-top: 15px; }
+  .btn-outline { background: none; border: 2px solid #e5e7eb; color: var(--text-light); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <div class="summary-header">
+      <div>已攝取 <div style="margin-top:5px;"><span class="big-num" id="sum-cals">0</span> 大卡</div></div>
+      <div>剩餘 <div style="text-align:right; margin-top:5px;"><span class="rem-num" id="rem-cals">2000</span> 大卡</div></div>
+    </div>
+    <div class="progress-bg"><div class="progress-bar" id="progress"></div></div>
+    <div class="macros-grid">
+      <div class="macro-item"><small>碳水</small><span class="macro-val"><span id="sum-carbs">0</span>/200g</span></div>
+      <div class="macro-item"><small>蛋白質</small><span class="macro-val"><span id="sum-protein">0</span>/175g</span></div>
+      <div class="macro-item"><small>脂肪</small><span class="macro-val"><span id="sum-fat">0</span>/55g</span></div>
+      <div class="macro-item"><small>鈉</small><span class="macro-val"><span id="sum-sodium">0</span>mg</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('manual')">手動輸入</button>
+      <button class="tab-btn" onclick="switchTab('ai')">✨ AI 估算</button>
+      <button class="tab-btn" onclick="switchTab('history')">歷史紀錄</button>
+    </div>
+
+    <div id="tab-manual" class="tab-content active">
+      <div class="input-group"><input type="text" id="in-name" class="input-field" placeholder="食物名稱"></div>
+      <div class="input-group"><input type="number" id="in-cals" class="input-field" placeholder="熱量 (大卡)"></div>
+      <div class="row">
+        <div class="input-group" style="flex:1"><input type="number" id="in-carbs" class="input-field" placeholder="碳水(g)"></div>
+        <div class="input-group" style="flex:1"><input type="number" id="in-protein" class="input-field" placeholder="蛋白質(g)"></div>
+      </div>
+      <div class="row">
+        <div class="input-group" style="flex:1"><input type="number" id="in-fat" class="input-field" placeholder="脂肪(g)"></div>
+        <div class="input-group" style="flex:1"><input type="number" id="in-sodium" class="input-field" placeholder="鈉(mg)"></div>
+      </div>
+      <button class="btn btn-primary" onclick="handleSubmit('add')">＋ 新增食物</button>
+    </div>
+
+    <div id="tab-ai" class="tab-content">
+      <div class="input-group">
+        <textarea id="ai-prompt" class="input-field" rows="3" placeholder="你吃了什麼？例如：「一碗牛肉麵」"></textarea>
+      </div>
+      <button id="ai-btn" class="btn btn-ai" onclick="callAI()">✨ 估算並填入表單</button>
+      <p style="color:var(--text-light); font-size:0.9rem; margin-top:10px;">AI 分析後會自動跳轉到「手動輸入」頁面，你可以確認數值後再新增。</p>
+    </div>
+    
+     <div id="tab-history" class="tab-content">
+        <div id="history-list">載入中...</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="list-header">今日紀錄</div>
+    <div id="today-list">載入中...</div>
+  </div>
+</div>
+
+<script>
+  // --- 設定區 (請替換成你的資料) ---
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyJ_9TE4vkBAxzQDtuNuP9RJzoPung4D6nX1QACgJYpdyqbOy0CRUCS0RDOsqUGE9d1/exec"; // 你的 Apps Script 網址
+  const DAILY_TARGET = 2000;
+
+  // --- 變數與初始化 ---
+  let allData = [];
+  let isSubmitting = false;
+
+  window.onload = function() {
+    fetchData();
+  };
+
+  // --- 核心功能 ---
+
+  // 1. 從後端讀取資料
+  function fetchData() {
+    document.getElementById('today-list').innerHTML = '<div style="text-align:center; color:var(--text-light);">讀取資料中...</div>';
+    fetch(GAS_URL)
+      .then(res => res.json())
+      .then(data => {
+        allData = data;
+        renderUI();
+      })
+      .catch(err => {
+        console.error(err);
+        alert("讀取失敗，請檢查網路或 GAS 網址設定。");
+      });
+  }
+
+  // 2. 渲染所有介面 (摘要、列表、歷史)
+  function renderUI() {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayData = allData.filter(d => d.date === todayStr);
+    const historyData = allData.filter(d => d.date !== todayStr).reverse();
+
+    // 渲染摘要
+    let sums = { cals: 0, carbs: 0, protein: 0, fat: 0, sodium: 0 };
+    todayData.forEach(d => {
+      sums.cals += Number(d.calories); sums.carbs += Number(d.carbs);
+      sums.protein += Number(d.protein); sums.fat += Number(d.fat); sums.sodium += Number(d.sodium);
+    });
+    document.getElementById('sum-cals').innerText = sums.cals;
+    document.getElementById('rem-cals').innerText = Math.max(DAILY_TARGET - sums.cals, 0);
+    document.getElementById('progress').style.width = Math.min((sums.cals / DAILY_TARGET) * 100, 100) + "%";
+    document.getElementById('sum-carbs').innerText = sums.carbs;
+    document.getElementById('sum-protein').innerText = sums.protein;
+    document.getElementById('sum-fat').innerText = sums.fat;
+    document.getElementById('sum-sodium').innerText = sums.sodium;
+
+    // 渲染今日列表
+    const listEl = document.getElementById('today-list');
+    if (todayData.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; color:var(--text-light); padding:20px;">今天還沒有紀錄</div>';
+    } else {
+        listEl.innerHTML = todayData.map(item => `
+        <div class="food-item" id="item-${item.id}">
+            <div class="food-info">
+            <h4>${item.foodName}</h4>
+            <div class="food-detail">${item.time} · 碳水 ${item.carbs}g · 蛋白 ${item.protein}g · 脂肪 ${item.fat}g · 鈉 ${item.sodium}mg</div>
+            </div>
+            <div style="display:flex; align-items:center;">
+            <div class="calories-tag">${item.calories} <small>大卡</small></div>
+            <div class="actions">
+                <button class="icon-btn edit" onclick="editItem('${item.id}')">✎</button>
+                <button class="icon-btn delete" onclick="deleteItem('${item.id}')">🗑️</button>
+            </div>
+            </div>
+        </div>
+        `).reverse().join('');
+    }
+
+    // 渲染歷史紀錄
+    const historyListEl = document.getElementById('history-list');
+    if (historyData.length === 0) {
+        historyListEl.innerHTML = '<div style="text-align:center; color:var(--text-light);">沒有歷史紀錄</div>';
+    } else {
+        let lastDate = '';
+        historyListEl.innerHTML = historyData.map(item => {
+            let dateHeader = '';
+            if (item.date !== lastDate) {
+                dateHeader = `<h4 style="margin:15px 0 5px 0; color:var(--text-light);">${item.date}</h4>`;
+                lastDate = item.date;
+            }
+            return `${dateHeader}<div style="padding:8px; border-bottom:1px solid #eee; display:flex; justify-content:space-between;"><span>${item.foodName}</span><span>${item.calories} 大卡</span></div>`;
+        }).join('');
+    }
+  }
+
+  // 3. 處理新增提交
+  function handleSubmit(action) {
+    if (isSubmitting) return;
+    const payload = {
+      action: action,
+      foodName: document.getElementById('in-name').value,
+      calories: document.getElementById('in-cals').value,
+      carbs: document.getElementById('in-carbs').value,
+      protein: document.getElementById('in-protein').value,
+      fat: document.getElementById('in-fat').value,
+      sodium: document.getElementById('in-sodium').value
+    };
+    if (!payload.foodName || !payload.calories) return alert("請輸入名稱和熱量");
+    sendDataToGAS(payload);
+  }
+
+  // 4. 傳送資料到後端 (新增/修改/刪除)
+  function sendDataToGAS(payload) {
+    isSubmitting = true;
+    const loadingText = payload.action === 'delete' ? '刪除中...' : '儲存中...';
+    // 顯示簡易的載入提示 (在按鈕或列表上)
+    if(payload.action === 'add') document.querySelector('#tab-manual .btn-primary').innerText = loadingText;
+
+    fetch(GAS_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) })
+      .then(() => {
+        // 成功後清空表單並重新讀取資料
+        if(payload.action === 'add') {
+            document.querySelectorAll('#tab-manual input').forEach(i => i.value = '');
+            document.querySelector('#tab-manual .btn-primary').innerText = '＋ 新增食物';
+        }
+        isSubmitting = false;
+        setTimeout(fetchData, 1000); // 稍等一秒讓試算表更新
+      })
+      .catch(err => {
+        console.error(err);
+        alert("操作失敗");
+        isSubmitting = false;
+        if(payload.action === 'add') document.querySelector('#tab-manual .btn-primary').innerText = '＋ 新增食物';
+        renderUI(); // 發生錯誤時重繪介面以移除可能的載入狀態
+      });
+  }
+
+  // 5. 刪除功能
+  function deleteItem(id) {
+    if (!confirm("確定要刪除這筆紀錄嗎？")) return;
+    // 立即在 UI 上移除該項目以提供即時回饋
+    document.getElementById(`item-${id}`).style.opacity = 0.5;
+    sendDataToGAS({ action: 'delete', id: id });
+  }
+
+  // 6. 進入修改模式
+  function editItem(id) {
+    const item = allData.find(d => d.id == id);
+    const itemEl = document.getElementById(`item-${id}`);
+    // 將原本的列表項目替換成編輯表單
+    itemEl.outerHTML = `
+      <div class="edit-form" id="edit-${id}">
+        <div class="input-group"><input type="text" id="edit-name-${id}" class="input-field" value="${item.foodName}"></div>
+        <div class="row">
+          <div class="input-group" style="flex:1"><label><small>熱量</small></label><input type="number" id="edit-cals-${id}" class="input-field" value="${item.calories}"></div>
+          <div class="input-group" style="flex:1"><label><small>碳水</small></label><input type="number" id="edit-carbs-${id}" class="input-field" value="${item.carbs}"></div>
+        </div>
+        <div class="row">
+          <div class="input-group" style="flex:1"><label><small>蛋白質</small></label><input type="number" id="edit-protein-${id}" class="input-field" value="${item.protein}"></div>
+          <div class="input-group" style="flex:1"><label><small>脂肪</small></label><input type="number" id="edit-fat-${id}" class="input-field" value="${item.fat}"></div>
+          <div class="input-group" style="flex:1"><label><small>鈉</small></label><input type="number" id="edit-sodium-${id}" class="input-field" value="${item.sodium}"></div>
+        </div>
+        <div class="edit-actions">
+          <button class="btn btn-primary" onclick="saveEdit('${id}')">儲存</button>
+          <button class="btn btn-outline" onclick="renderUI()">取消</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // 7. 儲存修改
+  function saveEdit(id) {
+    const payload = {
+      action: 'update',
+      id: id,
+      foodName: document.getElementById(`edit-name-${id}`).value,
+      calories: document.getElementById(`edit-cals-${id}`).value,
+      carbs: document.getElementById(`edit-carbs-${id}`).value,
+      protein: document.getElementById(`edit-protein-${id}`).value,
+      fat: document.getElementById(`edit-fat-${id}`).value,
+      sodium: document.getElementById(`edit-sodium-${id}`).value
+    };
+    document.getElementById(`edit-${id}`).style.opacity = 0.5; // 顯示載入中
+    sendDataToGAS(payload);
+  }
+
+  // 8. AI 估算功能 (安全版：交給後端處理)
+  async function callAI() {
+    const promptText = document.getElementById('ai-prompt').value;
+    if (!promptText) return alert("請輸入你吃了什麼！");
+    
+    const btn = document.getElementById('ai-btn');
+    btn.innerText = "雲端 AI 正在計算中..."; 
+    btn.disabled = true;
+
+    try {
+      // 這次我們不直接呼叫 Google AI，而是呼叫你自己的 Apps Script API
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        // 注意：這裡刻意不加 Headers，避免跨域(CORS)預檢請求擋住連線
+        body: JSON.stringify({
+          action: 'ai_estimate',
+          prompt: promptText
+        })
+      });
+      
+      const responseData = await res.json();
+
+      if (responseData.status === "error") {
+        throw new Error(responseData.message);
+      }
+
+      const result = responseData.data;
+
+      // 將後端傳回來的 AI 結果自動填入表單中
+      document.getElementById('in-name').value = result.foodName || promptText;
+      document.getElementById('in-cals').value = result.calories || 0;
+      document.getElementById('in-carbs').value = result.carbs || 0;
+      document.getElementById('in-protein').value = result.protein || 0;
+      document.getElementById('in-fat').value = result.fat || 0;
+      document.getElementById('in-sodium').value = result.sodium || 0;
+
+      // 切換回手動輸入分頁
+      switchTab('manual');
+      document.getElementById('ai-prompt').value = '';
+
+    } catch (e) {
+      console.error("AI 錯誤:", e);
+      alert(`分析失敗！\n原因：${e.message}`);
+    } finally {
+      btn.innerText = "✨ 估算並填入表單"; 
+      btn.disabled = false;
+    }
+  }
+
+  // 9. 分頁切換
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`).classList.add('active');
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+  }
+</script>
+</body>
+</html>
