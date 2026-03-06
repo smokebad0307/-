@@ -373,21 +373,58 @@
     document.getElementById(`tab-${tabName}`).classList.add('active');
   }
 
+  // --- AI 圖片與文字處理 ---
+  let base64Image = null;
+
+  // 1. 預覽圖片並轉換為 Base64
+  function previewImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      document.getElementById('image-preview').src = e.target.result;
+      document.getElementById('image-preview-container').style.display = 'block';
+      // 擷取 Base64 字串 (移除前面的 data:image/jpeg;base64, 標籤)
+      base64Image = e.target.result.split(',')[1];
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // 2. 移除圖片
+  function removeImage() {
+    base64Image = null;
+    document.getElementById('image-upload').value = '';
+    document.getElementById('image-preview-container').style.display = 'none';
+    document.getElementById('image-preview').src = '';
+  }
+
+  // 3. 呼叫 AI API
   async function callAI() {
     const promptText = document.getElementById('ai-prompt').value;
-    if (!promptText) return alert("請輸入吃了什麼");
+    
+    // 檢查是不是什麼都沒填
+    if (!promptText && !base64Image) {
+      return alert("請輸入吃了什麼，或是上傳一張照片喔！");
+    }
+
     const btn = document.getElementById('ai-btn');
-    btn.innerText = "計算中..."; btn.disabled = true;
+    btn.innerText = "👀 AI 視覺辨識中..."; btn.disabled = true;
 
     try {
       const res = await fetch(GAS_URL, {
-        method: 'POST', body: JSON.stringify({ action: 'ai_estimate', prompt: promptText })
+        method: 'POST', body: JSON.stringify({ 
+          action: 'ai_estimate', 
+          prompt: promptText,
+          image: base64Image // 把轉換好的圖片一起送去後端
+        })
       });
       const responseData = await res.json();
       if (responseData.status === "error") throw new Error(responseData.message);
       
       const result = responseData.data;
-      document.getElementById('in-name').value = result.foodName || promptText;
+      // 優先使用 AI 辨識出的名稱，如果沒有則用使用者打的字，都沒有就填 "圖片食物"
+      document.getElementById('in-name').value = result.foodName || promptText || "圖片食物";
       document.getElementById('in-cals').value = result.calories || 0;
       document.getElementById('in-carbs').value = result.carbs || 0;
       document.getElementById('in-protein').value = result.protein || 0;
@@ -396,10 +433,11 @@
 
       switchTab('manual');
       document.getElementById('ai-prompt').value = '';
+      removeImage(); // 成功後清空圖片
     } catch (e) {
-      alert("AI 分析失敗，請稍後再試。");
+      alert("AI 辨識失敗，請檢查網路或稍後再試。");
     } finally {
-      btn.innerText = "✨ AI 估算並填入"; btn.disabled = false;
+      btn.innerText = "✨ 估算並填入"; btn.disabled = false;
     }
   }
 </script>
