@@ -114,7 +114,10 @@
         <input type="number" id="in-sodium" class="input-field" placeholder="鈉(mg)">
       </div>
       <input type="hidden" id="edit-id">
-      <button class="btn btn-primary" id="save-food-btn" onclick="handleSaveFood()">＋ 新增到這一天</button>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-primary" id="save-food-btn" onclick="handleSaveFood()" style="flex: 2.5;">＋ 新增到這一天</button>
+        <button class="btn" onclick="resetForm()" style="flex: 1; background: #fee2e2; color: #ef4444; padding: 14px 0;">🗑️ 清空</button>
+      </div>
       <button class="btn" id="cancel-edit-btn" style="display:none; margin-top:10px; background:#e5e7eb;" onclick="resetForm()">取消修改</button>
     </div>
 
