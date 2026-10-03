@@ -1,148 +1,101 @@
 (() => {
   'use strict';
   const config = window.NUTRITION_CONFIG || {};
-  const sessionKey = 'nutrition-session-v1';
-  let session = null, revision = 0, refreshPromise = null;
   const el = id => document.getElementById(id);
-  const configured = () => Boolean(config.firebaseApiKey && config.firebaseProjectId);
-  function message(text, success = false) {
-    el('auth-message').textContent = text;
-    el('auth-message').style.color = success ? 'var(--success)' : 'var(--danger)';
+  let sdk, auth, currentUser = null, revision = 0, busy = false, initializing = null;
+  function message(text) { el('auth-message').textContent = text; }
+  function render() {
+    el('auth-card').hidden = Boolean(currentUser);
+    el('user-card').hidden = !currentUser;
+    el('tracker').hidden = !currentUser;
+    el('user-email').textContent = currentUser ? currentUser.email || currentUser.displayName || 'Google 使用者' : '';
   }
-  function saveSession(value) {
-    session = value;
-    try { if (value) sessionStorage.setItem(sessionKey, JSON.stringify(value)); else sessionStorage.removeItem(sessionKey); }
-    catch (_) { /* 記憶體登入仍可使用；瀏覽器關閉後必須重新登入。 */ }
+  function errorText(error) {
+    return ({
+      'auth/popup-blocked': '登入視窗被阻擋，請允許此網站開啟彈出式視窗後再試。',
+      'auth/popup-closed-by-user': '登入已取消，請再按一次「使用 Google 登入」。',
+      'auth/cancelled-popup-request': '登入已取消，請稍後再試。',
+      'auth/unauthorized-domain': '這個網站尚未開放 Google 登入，請聯絡管理員。',
+      'auth/operation-not-allowed': 'Google 登入尚未開放，請聯絡管理員。',
+      'auth/account-exists-with-different-credential': '這個 Email 已使用其他方式註冊，請聯絡管理員協助連結原帳號，以保留紀錄。',
+      'auth/network-request-failed': '無法連線，請檢查網路後再試。',
+      'auth/user-disabled': '帳號已停用，請聯絡管理員。',
+      'auth/invalid-api-key': '登入服務尚未設定完成，請聯絡管理員。',
+      'auth/too-many-requests': '嘗試次數過多，請稍後再試。'
+    })[error.code] || 'Google 登入暫時無法使用，請稍後再試。';
   }
-  function setView() {
-    el('auth-card').hidden = Boolean(session);
-    el('user-card').hidden = !session;
-    el('tracker').hidden = !session;
-    el('user-email').textContent = session ? session.email : '';
+  function setUser(user) {
+    revision++; currentUser = user;
+    window.clearUserData(); render(); message('');
+    if (user) window.fetchData();
   }
   function signOut(text = '') {
-    revision++; saveSession(null); refreshPromise = null;
-    window.clearUserData();
-    el('auth-password').value = '';
-    el('auth-confirm').value = '';
-    setView(); message(text);
-  }
-  const errorMessage = code => ({
-    EMAIL_EXISTS: '這個 Email 已註冊，請登入或重設密碼。',
-    INVALID_EMAIL: '請輸入有效的 Email。',
-    WEAK_PASSWORD: '密碼強度不足，請使用至少 8 個字元。',
-    INVALID_LOGIN_CREDENTIALS: 'Email 或密碼不正確。',
-    EMAIL_NOT_FOUND: 'Email 或密碼不正確。',
-    INVALID_PASSWORD: 'Email 或密碼不正確。',
-    USER_DISABLED: '帳號已停用，請聯絡管理員。',
-    TOO_MANY_ATTEMPTS_TRY_LATER: '嘗試次數過多，請稍後再試。',
-    OPERATION_NOT_ALLOWED: '註冊登入尚未開放，請聯絡管理員。',
-    API_KEY_INVALID: '登入服務尚未設定完成，請聯絡管理員。'
-  }[code] || '登入服務暫時無法使用，請稍後再試。');
-  async function firebase(action, data) {
-    if (!configured()) throw new Error('登入服務尚未開放，請聯絡管理員。');
-    let response;
-    try {
-      response = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:' + action +
-        '?key=' + encodeURIComponent(config.firebaseApiKey), {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
-      });
-    } catch (_) { throw new Error('無法連線，請檢查網路後再試。'); }
-    const result = await response.json();
-    if (!response.ok || result.error) {
-      const code = ((result.error || {}).message || '').split(' : ')[0];
-      throw new Error(errorMessage(code));
-    }
-    return result;
+    revision++; currentUser = null;
+    window.clearUserData(); render(); message(text);
+    if (!sdk || !auth) return Promise.resolve();
+    return sdk.signOut(auth).catch(() => {
+      message('登出未完成，請重新整理後再試一次。');
+    });
   }
   async function getIdToken() {
-    if (!session) throw new Error('請先登入。');
-    if (session.expiresAt > Date.now() + 60000) return session.idToken;
-    if (!refreshPromise) {
-      const previous = session, version = revision;
-      refreshPromise = (async () => {
-        let response;
-        try {
-          response = await fetch('https://securetoken.googleapis.com/v1/token?key=' +
-            encodeURIComponent(config.firebaseApiKey), {
-            method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-            body:new URLSearchParams({ grant_type:'refresh_token', refresh_token:previous.refreshToken })
-          });
-        } catch (_) { throw new Error('無法更新登入，請檢查網路後再試。'); }
-        const result = await response.json();
-        if (version !== revision || session !== previous) throw new Error('登入狀態已變更。');
-        if (!response.ok) {
-          if (response.status === 400 || response.status === 401 || response.status === 403)
-            signOut('登入已失效，請重新登入。');
-          throw new Error('無法更新登入，請稍後再試或重新登入。');
-        }
-        saveSession({ ...previous, idToken:result.id_token, refreshToken:result.refresh_token,
-          expiresAt:Date.now() + Number(result.expires_in) * 1000 });
-        return session.idToken;
-      })();
-      const pending = refreshPromise;
-      pending.finally(() => { if (refreshPromise === pending) refreshPromise = null; }).catch(() => {});
-    }
-    return refreshPromise;
-  }
-  function setMode(mode) {
-    el('auth-mode').value = mode;
-    el('confirm-row').hidden = mode !== 'register';
-    el('auth-confirm').required = mode === 'register';
-    el('auth-password').autocomplete = mode === 'register' ? 'new-password' : 'current-password';
-    el('auth-submit').textContent = mode === 'register' ? '建立帳號' : '登入';
-    el('login-tab').classList.toggle('active', mode === 'login');
-    el('register-tab').classList.toggle('active', mode === 'register');
-    el('auth-confirm').value = ''; message(configured() ? '' : '登入服務尚未開放，請聯絡管理員。');
-  }
-  async function submit(event) {
-    event.preventDefault();
-    const email = el('auth-email').value.trim(), password = el('auth-password').value;
-    const mode = el('auth-mode').value, version = revision;
-    if (mode === 'register' && (password.length < 8 || password !== el('auth-confirm').value)) {
-      message(password.length < 8 ? '註冊密碼請使用至少 8 個字元。' : '兩次輸入的密碼不一致。'); return;
-    }
-    const btn = el('auth-submit'); btn.disabled = true; btn.textContent = '處理中…'; message('');
+    const user = currentUser, version = revision;
+    if (!user) throw new Error('請先登入。');
     try {
-      const result = await firebase(mode === 'register' ? 'signUp' : 'signInWithPassword',
-        { email, password, returnSecureToken:true });
-      if (revision !== version) return;
-      revision++;
-      saveSession({ idToken:result.idToken, refreshToken:result.refreshToken,
-        expiresAt:Date.now() + Number(result.expiresIn)*1000, email:result.email, uid:result.localId });
-      el('auth-password').value = ''; el('auth-confirm').value = '';
-      setView(); await window.fetchData();
-    } catch (error) { if (revision === version) message(error.message); }
-    finally { btn.disabled = !configured(); btn.textContent = mode === 'register' ? '建立帳號' : '登入'; }
+      const token = await user.getIdToken();
+      if (version !== revision || currentUser !== user) throw new Error('登入狀態已變更。');
+      return token;
+    } catch (error) {
+      if (version !== revision || currentUser !== user) throw new Error('登入狀態已變更。');
+      if (['auth/user-token-expired', 'auth/invalid-user-token', 'auth/user-disabled'].includes(error.code))
+        signOut('登入已失效，請重新登入。');
+      throw new Error(error.code ? errorText(error) : error.message);
+    }
   }
-  async function resetPassword() {
-    const email = el('auth-email').value.trim();
-    if (!email || !el('auth-email').checkValidity()) { message('請先輸入有效的 Email，再重設密碼。'); return; }
-    const btn = el('auth-reset'); btn.disabled = true;
+  async function login() {
+    if (busy || !auth) return;
+    busy = true;
+    const btn = el('google-login'); btn.disabled = true; btn.textContent = 'Google 登入中…'; message('');
     try {
-      await firebase('sendOobCode', { requestType:'PASSWORD_RESET', email });
-      message('若此 Email 已註冊，你會收到重設密碼信，請查看收件匣與垃圾郵件。', true);
-    } catch (error) { message(error.message); }
-    finally { btn.disabled = !configured(); }
+      const provider = new sdk.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      // 直接由按鈕事件開啟彈出視窗，避免等待其他工作後失去瀏覽器的使用者手勢。
+      await sdk.signInWithPopup(auth, provider);
+    } catch (error) { message(errorText(error)); }
+    finally { busy = false; btn.disabled = false; btn.textContent = '使用 Google 登入'; }
   }
-  async function init() {
-    el('auth-form').addEventListener('submit', submit);
-    el('login-tab').addEventListener('click', () => setMode('login'));
-    el('register-tab').addEventListener('click', () => setMode('register'));
-    el('auth-reset').addEventListener('click', resetPassword);
+  async function initialize() {
+    el('google-login').addEventListener('click', login);
     el('auth-logout').addEventListener('click', () => signOut());
-    if (!configured()) {
-      setView(); message('登入服務尚未開放，請聯絡管理員。');
-      el('auth-submit').disabled = true; el('auth-reset').disabled = true; return;
+    render();
+    if (!config.firebaseApiKey || !config.firebaseProjectId) {
+      message('登入服務尚未開放，請聯絡管理員。'); return;
     }
     try {
-      const saved = JSON.parse(sessionStorage.getItem(sessionKey));
-      if (saved && typeof saved.idToken === 'string' && typeof saved.refreshToken === 'string' &&
-          typeof saved.email === 'string' && typeof saved.uid === 'string' &&
-          Number.isFinite(saved.expiresAt)) session = saved;
-    } catch (_) { saveSession(null); }
-    setView();
-    if (session) await window.fetchData();
+      const [appSdk, authSdk] = await Promise.all([
+        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
+        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js')
+      ]);
+      sdk = authSdk;
+      const app = appSdk.initializeApp({
+        apiKey: config.firebaseApiKey, projectId: config.firebaseProjectId,
+        authDomain: config.firebaseAuthDomain || config.firebaseProjectId + '.firebaseapp.com'
+      });
+      auth = sdk.getAuth(app);
+      await sdk.setPersistence(auth, sdk.browserSessionPersistence);
+      // 移除舊版 REST 登入憑證；新版只由 Firebase SDK 管理登入與 token 更新。
+      try { sessionStorage.removeItem('nutrition-session-v1'); } catch (_) {}
+      await new Promise((resolve, reject) => {
+        let first = true;
+        sdk.onAuthStateChanged(auth, user => {
+          setUser(user);
+          if (first) { first = false; resolve(); }
+        }, error => {
+          message(errorText(error)); reject(error);
+        });
+      });
+      el('google-login').disabled = false;
+    } catch (_) { message('登入服務載入失敗，請檢查網路後重新整理。'); }
   }
-  window.NutritionAuth = { init, getIdToken, signOut, version:() => revision, signedIn:() => Boolean(session) };
+  function init() { if (!initializing) initializing = initialize(); return initializing; }
+  window.NutritionAuth = { init, getIdToken, signOut, version:() => revision, signedIn:() => Boolean(currentUser) };
 })();
