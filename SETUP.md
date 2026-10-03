@@ -2,7 +2,7 @@
 
 前端新增 Email 註冊、登入、忘記密碼、登出；Firebase Authentication 管理密碼。
 營養紀錄繼續存於原本的 Google 試算表，Apps Script 驗證每次請求的 Firebase token，依 OwnerUid 分開資料。
-目前 config.js 尚未填入專案設定，所以網頁會顯示登入服務尚未開放。此版本必須前後端一起部署。
+config.js 已填入 test1-189aa 的 Firebase 公開網頁設定。仍須啟用 Email/Password 並設定、部署 Apps Script 後端，才能使用登入與資料同步。此版本必須前後端一起部署。
 
 ## 1. 建立 Firebase 專案
 
