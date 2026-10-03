@@ -1,20 +1,21 @@
 # 啟用帳號功能
 
-前端新增 Email 註冊、登入、忘記密碼、登出；Firebase Authentication 管理密碼。
+前端使用 Google 登入，首次登入自動建立 Firebase 帳號；保留登出與每位使用者独立的雲端紀錄。
 營養紀錄繼續存於原本的 Google 試算表，Apps Script 驗證每次請求的 Firebase token，依 OwnerUid 分開資料。
-config.js 已填入 test1-189aa 的 Firebase 公開網頁設定。仍須啟用 Email/Password 並設定、部署 Apps Script 後端，才能使用登入與資料同步。此版本必須前後端一起部署。
+config.js 已填入 test1-189aa 的 Firebase 公開設定。Google 登入需要啟用 Google provider 並加入網站授權網域；已部署的使用者隔離後端可直接沿用。
 
 ## 1. 建立 Firebase 專案
 
 1. 開啟 [Firebase Console](https://console.firebase.google.com/)，建立或選取自己的專案。
-2. Authentication → Sign-in method，啟用 Email/Password。
-3. 專案設定 → 一般，新增網頁應用程式，取得 apiKey 和 projectId。
-4. 將這兩個公開設定填到 config.js 的 firebaseApiKey 和 firebaseProjectId。
-5. 若設定 API 金鑰限制，必須允許 Firebase Authentication/Identity Toolkit 及 Secure Token API。
+2. Authentication → Sign-in method → Google，啟用並選擇支援 Email，儲存。
+3. Authentication → Settings → Authorized domains，加入 smokebad0307.github.io。只填網域，不填 https:// 或 /-/ 路徑。
+4. 專案設定 → 一般，新增網頁應用程式，取得 apiKey 和 projectId。
+5. 將這兩個公開設定填到 config.js 的 firebaseApiKey 和 firebaseProjectId。
+6. 若設定 API 金鑰限制，必須允許 Firebase Authentication/Identity Toolkit 及 Secure Token API。
    同一把 Firebase API key 也會由 Apps Script 伺服器使用，僅限瀏覽器 HTTP referrer 的限制會阻擋後端驗證。
    Gemini API key 是不同用途的私密金鑰，切勿填進 config.js。
 
-密碼由 Firebase 管理，不會保存到 Google 試算表。瀏覽器使用 sessionStorage 保存登入 token，
+Google 登入透過 Firebase SDK 的彈出視窗進行，SDK 管理 sessionPersistence 與 token 更新，網頁不收取密碼。
 同一分頁重新整理會保留登入；新分頁、其他裝置或關閉分頁後請重新登入。紀錄由雲端同步。
 
 ## 2. 更新 Apps Script 後端
@@ -38,7 +39,9 @@ config.js 已填入 test1-189aa 的 Firebase 公開網頁設定。仍須啟用 E
 
 ## 3. 保留你的舊紀錄
 
-1. Firebase Console → Authentication → Users，新增你自己的 Email 使用者，或在設定好的網頁上註冊。
+1. 在網頁用 Google 登入一次，再到 Firebase Console → Authentication → Users 查看該帳號 UID。
+   若先前使用 Gmail 的 Email/Password 帳號，請選同一個 Gmail。Firebase 通常可接續該帳號；務必檢查 UID 是否與原本 OwnerUid 相同。
+   若遇到 account-exists-with-different-credential，請先連結既有帳號，勿刪除原帳號或建立另一個 UID 來認領紀錄。
 2. 複製該帳號的 UID，填入 LEGACY_OWNER_UID。
 3. 在 Apps Script 編輯器選取 migrateLegacyData，按執行並完成 Google 授權。
 4. 這只會將沒有 OwnerUid 的舊紀錄與目標指定給該 UID；既有歸屬不會被改寫，可重複執行。
@@ -54,7 +57,7 @@ config.js 已填入 test1-189aa 的 Firebase 公開網頁設定。仍須啟用 E
 3. 更新原部署通常可保留原本的 /exec 網址。若改用新部署，請更新 index.html 裡的 GAS_URL。
 4. 在部署管理中封存其他仍在運作的舊版部署，以免舊網址繼續提供匿名讀取或修改。
 5. 最後才合併前端修改到 GitHub Pages 使用的分支。後端變更與前端上線之間，舊版前端暫時無法使用。
-6. 網頁開啟後，檢查註冊、登入、忘記密碼與兩台装置間的紀錄同步。
+6. 網頁開啟後，檢查 Google 登入、登出與兩台裝置間的紀錄同步。
 
 ## 5. 驗收
 
@@ -78,6 +81,7 @@ node --test tests/backend.test.cjs tests/auth.test.cjs
 
 ## 官方文件
 
-- [Firebase Email/Password](https://firebase.google.com/docs/auth/web/password-auth)
+- [Firebase Google 登入](https://firebase.google.com/docs/auth/web/google-signin)
+- [跨來源儲存限制與彈出視窗登入](https://firebase.google.com/docs/auth/web/redirect-best-practices)
 - [Firebase Authentication REST API](https://firebase.google.com/docs/reference/rest/auth)
 - [Apps Script 網頁應用程式](https://developers.google.com/apps-script/guides/web)
